@@ -72,6 +72,12 @@ th:first-child,td:first-child{text-align:left}
 .dock .row{max-width:560px;margin:0 auto}
 .dock button{flex:1}
 .hint{color:var(--muted);font-size:13px;text-align:center}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--chip);padding:4px;border-radius:12px}
+.seg button{background:transparent}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chips button{min-height:36px;padding:6px 10px;font-size:14px}
+.tagv{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;padding:4px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.nums,.mods{transition:opacity .15s}
 @media (prefers-reduced-motion:no-preference){button{transition:transform .08s}button:active{transform:scale(.96)}}
 </style>
 </head>
@@ -82,26 +88,69 @@ th:first-child,td:first-child{text-align:left}
 <script>
 const TARGET=200, BONUS=15, MODS=[2,4,6,8,10], KEY='flip7-v1';
 const uid=()=>Math.random().toString(36).slice(2,9);
-const blank=()=>({players:[],rounds:[],phase:'setup',draft:null,edit:null});
+const blank=()=>({players:[],rounds:[],phase:'setup',draft:null,edit:null,v:'classic',brutal:false});
 let S; try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){} if(!S||!S.players)S=blank();
+if(!S.v)S.v='classic';
 let ask=null; // action en attente de confirmation
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const empty=()=>({nums:[],x2:false,mods:[],bust:false});
+const empty=()=>({nums:[],x2:false,half:false,mods:[],bust:false,f7to:null});
 const newDraft=()=>Object.fromEntries(S.players.map(p=>[p.id,empty()]));
-function score(e){ if(!e||e.bust)return 0; let s=e.nums.reduce((a,b)=>a+b,0); if(e.x2)s*=2;
-  s+=e.mods.reduce((a,b)=>a+b,0); if(e.nums.length===7)s+=BONUS; return s; }
-const total=id=>S.rounds.reduce((a,r)=>a+score(r[id]),0);
+const V=()=>S.v==='vengeance';
+const sum=a=>a.reduce((x,y)=>x+y,0);
+const distinct=e=>new Set(e.nums).size;
+const isF7=e=>!!e&&!e.bust&&distinct(e)===7;
+const pname=id=>(S.players.find(p=>p.id===id)||{name:'?'}).name;
+
+/* Score d'un joueur sur sa propre ligne de cartes */
+function base(e){
+  if(!e)return 0;
+  if(!V()){ // Classique : numéros, ×2, puis bonus +, puis +15
+    if(e.bust)return 0;
+    let s=sum(e.nums); if(e.x2)s*=2; s+=sum(e.mods); if(isF7(e))s+=BONUS; return s;
+  }
+  // Vengeance : numéros, ÷2 (arrondi en dessous), puis malus, plancher 0 (sauf brutal), puis +15
+  if(e.bust)return S.brutal?-sum(e.mods):0;
+  const f7=isF7(e); let s=sum(e.nums);
+  if(e.nums.includes(0)&&!f7)s=0;           // Le Zéro : 0 point sauf Flip 7
+  if(e.half)s=Math.floor(s/2);
+  s-=sum(e.mods);
+  if(!S.brutal)s=Math.max(0,s);
+  if(f7&&!(S.brutal&&e.f7to))s+=BONUS;
+  return s;
+}
+/* Score d'un joueur dans une manche, y compris les −15 reçus en mode brutal */
+function rs(r,id){
+  let s=base(r[id]);
+  if(V()&&S.brutal) for(const k in r) if(k!==id&&isF7(r[k])&&r[k].f7to===id) s-=BONUS;
+  return s;
+}
+const total=id=>S.rounds.reduce((a,r)=>a+rs(r,id),0);
 function winner(){ const t=S.players.map(p=>({p,t:total(p.id)})); return t.some(x=>x.t>=TARGET)?t.sort((a,b)=>b.t-a.t)[0]:null; }
 const app=document.getElementById('app'), dock=document.getElementById('dock');
 
 function render(){ save(); S.phase==='setup'?setup():game(); }
+
+const RULES={
+  classic:'Numéros 0 à 12. Le ×2 double les numéros, les bonus +2 à +10 s’ajoutent, 7 numéros différents = +15.',
+  vengeance:'Numéros 0 à 13. Le ÷2 divise les numéros, les malus −2 à −10 se retirent (score jamais sous 0), 7 numéros différents = +15. Le Zéro met la manche à 0 sauf Flip 7. Le 13 chanceux autorise deux 13.'
+};
 
 function setup(){
   dock.hidden=true;
   app.innerHTML=`
   <h1>Flip <span class="seven">7</span></h1>
   <p class="sub">Compteur de points · objectif ${TARGET}</p>
+  <h2>Version du jeu</h2>
+  <div class="card">
+    <div class="seg" role="group" aria-label="Version du jeu">
+      <button id="v-classic" class="${!V()?'on':''}" aria-pressed="${!V()}" onclick="setV('classic')">Classique</button>
+      <button id="v-vengeance" class="${V()?'on':''}" aria-pressed="${V()}" onclick="setV('vengeance')">Vengeance</button>
+    </div>
+    <p class="sub">${RULES[S.v]}</p>
+    ${V()?`<button id="brutal" class="${S.brutal?'bust-on':'ghost'}" aria-pressed="${S.brutal}" onclick="S.brutal=!S.brutal;render()">Mode brutal : ${S.brutal?'activé':'désactivé'}</button>
+    <p class="sub">${S.brutal?'Scores négatifs possibles, malus jouables sur un joueur sauté, et un Flip 7 peut retirer 15 points à un adversaire au lieu d’en gagner 15.':'Variante officielle plus méchante, à activer si vous jouez avec.'}</p>`:''}
+  </div>
   <h2>Joueurs</h2>
   <div class="card">
     ${S.players.map((p,i)=>`<div class="row">
@@ -112,41 +161,61 @@ function setup(){
       <button class="pri" onclick="add()" aria-label="Ajouter">＋</button>
     </div>
   </div>
-  <button class="pri" ${S.players.length<2?'disabled class="pri locked"':''} onclick="start()">Lancer la partie</button>
+  <button class="pri ${S.players.length<2?'locked':''}" onclick="start()">Lancer la partie</button>
   <p class="hint">Les scores restent enregistrés sur ce téléphone.</p>`;
+}
+
+function card(p){
+  const e=S.draft[p.id]||(S.draft[p.id]=empty()), f7=isF7(e), v=V();
+  const max=v?13:12, c13=e.nums.filter(n=>n===13).length;
+  const roundScore=rs(S.draft,p.id);
+  const pills=[];
+  if(f7)pills.push(`<span class="pill">${v&&S.brutal&&e.f7to?'Flip 7 · −15 à '+esc(pname(e.f7to)):'Flip 7 +15'}</span>`);
+  if(v&&!e.bust&&!f7&&e.nums.includes(0))pills.push('<span class="pill b">Zéro</span>');
+  if(e.bust)pills.push('<span class="pill b">Sauté</span>');
+  const nums=Array.from({length:max+1},(_,i)=>{
+    const on=e.nums.includes(i), lbl=(i===13&&c13===2)?'13×2':i;
+    return `<button class="${on?'on':''}" onclick="num('${p.id}',${i})" aria-pressed="${on}">${lbl}</button>`;}).join('');
+  const mods=v
+    ? `<button class="${e.half?'on':''}" onclick="half('${p.id}')">÷2</button>${MODS.map(m=>`<button class="${e.mods.includes(m)?'on':''}" onclick="mod('${p.id}',${m})">−${m}</button>`).join('')}`
+    : `<button class="${e.x2?'on':''}" onclick="x2('${p.id}')">×2</button>${MODS.map(m=>`<button class="${e.mods.includes(m)?'on':''}" onclick="mod('${p.id}',${m})">+${m}</button>`).join('')}`;
+  const modsLocked=e.bust&&!(v&&S.brutal);
+  let f7row='';
+  if(f7&&v&&S.brutal){
+    f7row=`<div class="chips"><span class="sub">Bonus Flip 7 :</span>
+      <button class="${!e.f7to?'on':''}" onclick="f7to('${p.id}',null)">+15 pour moi</button>
+      ${S.players.filter(o=>o.id!==p.id).map(o=>`<button class="${e.f7to===o.id?'on':''}" onclick="f7to('${p.id}','${o.id}')">−15 à ${esc(o.name)}</button>`).join('')}</div>`;
+  }
+  return `<div class="card">
+    <div class="row between"><span class="pname">${esc(p.name)}</span>
+      <span class="row">${pills.join('')}<span class="pts">${roundScore}</span></span></div>
+    <div class="nums ${e.bust?'locked':''}">${nums}</div>
+    <div class="mods ${modsLocked?'locked':''}">${mods}</div>
+    ${f7row}
+    <button class="${e.bust?'bust-on':'ghost'}" onclick="bust('${p.id}')">${e.bust?'Annuler « sauté »':(v&&S.brutal?'Sauté':'Sauté (0 point)')}</button>
+  </div>`;
 }
 
 function game(){
   if(!S.draft)S.draft=newDraft();
   const w=winner(), editing=S.edit!==null;
   const rk=[...S.players].map(p=>({p,t:total(p.id)})).sort((a,b)=>b.t-a.t);
-  let h=`<h1>Flip <span class="seven">7</span></h1>`;
+  let h=`<div class="row between"><h1>Flip <span class="seven">7</span></h1><span class="tagv">${V()?'Vengeance'+(S.brutal?' · brutal':''):'Classique'}</span></div>`;
   if(w&&!editing) h+=`<div class="card win"><b>${esc(w.p.name)} gagne</b>avec ${w.t} points en ${S.rounds.length} manches</div>`;
   h+=`<div class="card rank">${rk.map((x,i)=>`<div class="r">
       <span class="pos">${i+1}</span><span class="pname">${esc(x.p.name)}</span><span class="pts">${x.t}</span>
-      <span></span><span class="bar"><i style="width:${Math.min(100,x.t/TARGET*100)}%"></i></span></div>`).join('')}
+      <span></span><span class="bar"><i style="width:${Math.max(0,Math.min(100,x.t/TARGET*100))}%"></i></span></div>`).join('')}
     <p class="hint" style="margin:0">Objectif ${TARGET} points</p></div>`;
   if(!w||editing){
     const n=editing?S.edit+1:S.rounds.length+1;
     h+=`<h2>${editing?'Correction de la manche':'Manche'} ${n}</h2>`;
-    S.players.forEach(p=>{
-      const e=S.draft[p.id]||(S.draft[p.id]=empty()), f7=e.nums.length===7&&!e.bust;
-      h+=`<div class="card">
-        <div class="row between"><span class="pname">${esc(p.name)}</span>
-          <span class="row">${f7?'<span class="pill">Flip 7 +15</span>':''}${e.bust?'<span class="pill b">Sauté</span>':''}<span class="pts">${score(e)}</span></span></div>
-        <div class="${e.bust?'locked':''}" style="display:flex;flex-direction:column;gap:6px">
-          <div class="nums">${Array.from({length:13},(_,i)=>`<button class="${e.nums.includes(i)?'on':''}" onclick="num('${p.id}',${i})">${i}</button>`).join('')}</div>
-          <div class="mods"><button class="${e.x2?'on':''}" onclick="x2('${p.id}')">×2</button>${MODS.map(m=>`<button class="${e.mods.includes(m)?'on':''}" onclick="mod('${p.id}',${m})">+${m}</button>`).join('')}</div>
-        </div>
-        <button class="${e.bust?'bust-on':'ghost'}" onclick="bust('${p.id}')">${e.bust?'Annuler « sauté »':'Sauté (0 point)'}</button>
-      </div>`;
-    });
+    S.players.forEach(p=>{h+=card(p)});
     h+=`<button class="pri" onclick="validate()">${editing?'Enregistrer la correction':'Valider la manche'}</button>`;
     if(editing)h+=`<button class="ghost" onclick="cancelEdit()">Annuler la correction</button>`;
   }
   if(S.rounds.length){
     h+=`<h2>Historique</h2><div class="card tbl"><table><tr><th>Manche</th>${S.players.map(p=>`<th>${esc(p.name)}</th>`).join('')}<th></th></tr>
-      ${S.rounds.map((r,i)=>`<tr><td>${i+1}</td>${S.players.map(p=>{const e=r[p.id];return `<td>${e&&e.bust?'Sauté':score(e)}${e&&!e.bust&&e.nums.length===7?' ★':''}</td>`}).join('')}
+      ${S.rounds.map((r,i)=>`<tr><td>${i+1}</td>${S.players.map(p=>{const e=r[p.id];return `<td>${e&&e.bust&&rs(r,p.id)===0?'Sauté':rs(r,p.id)}${isF7(e)?' ★':''}</td>`}).join('')}
       <td><button class="ghost" style="min-height:36px;padding:4px 10px" onclick="editR(${i})" aria-label="Corriger la manche ${i+1}">✎</button></td></tr>`).join('')}
       <tr><th>Total</th>${S.players.map(p=>`<th>${total(p.id)}</th>`).join('')}<th></th></tr></table></div>`;
   }
@@ -159,19 +228,34 @@ function game(){
        <button class="ghost" onclick="ask='reset';render()">Réinitialiser</button></div>`;
 }
 
+function setV(v){S.v=v; render();}
 function add(){const i=document.getElementById('newName'),n=i.value.trim(); if(!n)return; S.players.push({id:uid(),name:n}); render(); document.getElementById('newName').focus();}
 function ren(id,n){const p=S.players.find(p=>p.id===id); if(n.trim())p.name=n.trim(); render();}
 function del(id){S.players=S.players.filter(p=>p.id!==id); render();}
 function start(){if(S.players.length<2)return; S.phase='game'; S.rounds=[]; S.draft=newDraft(); S.edit=null; render(); scrollTo(0,0);}
-function num(id,n){const e=S.draft[id]; if(e.nums.includes(n))e.nums=e.nums.filter(x=>x!==n); else if(e.nums.length<7)e.nums.push(n); render();}
+function num(id,n){
+  const e=S.draft[id], has=e.nums.includes(n);
+  if(V()&&n===13){ // 13 chanceux : un deuxième 13 est permis
+    const c=e.nums.filter(x=>x===13).length;
+    if(c===2)e.nums=e.nums.filter(x=>x!==13);
+    else if(c===1)e.nums.push(13);
+    else if(distinct(e)<7)e.nums.push(13);
+  } else if(has) e.nums=e.nums.filter(x=>x!==n);
+  else if(distinct(e)<7) e.nums.push(n);
+  if(!isF7(e))e.f7to=null;
+  render();
+}
 function x2(id){S.draft[id].x2=!S.draft[id].x2; render();}
+function half(id){S.draft[id].half=!S.draft[id].half; render();}
 function mod(id,m){const e=S.draft[id]; e.mods=e.mods.includes(m)?e.mods.filter(x=>x!==m):[...e.mods,m]; render();}
-function bust(id){S.draft[id].bust=!S.draft[id].bust; render();}
+function bust(id){const e=S.draft[id]; e.bust=!e.bust; if(e.bust)e.f7to=null; render();}
+function f7to(id,to){S.draft[id].f7to=to; render();}
 function validate(){const r=JSON.parse(JSON.stringify(S.draft)); if(S.edit!==null){S.rounds[S.edit]=r;S.edit=null}else S.rounds.push(r); S.draft=newDraft(); render(); scrollTo({top:0,behavior:'smooth'});}
 function editR(i){S.edit=i; S.draft=JSON.parse(JSON.stringify(S.rounds[i])); S.players.forEach(p=>{if(!S.draft[p.id])S.draft[p.id]=empty()}); render(); scrollTo({top:0,behavior:'smooth'});}
 function cancelEdit(){S.edit=null; S.draft=newDraft(); render();}
 function doAsk(){
-  if(ask==='new'){S.rounds=[];S.draft=newDraft();S.edit=null}
+  // Nouvelle partie : retour à l'accueil avec les mêmes joueurs, pour pouvoir changer de version
+  if(ask==='new'){S.rounds=[];S.draft=null;S.edit=null;S.phase='setup'}
   else {S=blank()}
   ask=null; render(); scrollTo(0,0);
 }

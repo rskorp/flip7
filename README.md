@@ -18,8 +18,9 @@ This little web app does the maths for you, so you can spend the evening flippin
 ## What it does
 
 - **Players**: add, rename or remove as many players as you like.
-- **Tap, don't type**: for each player, tap the number cards they kept (0–12). The app blocks duplicates and stops at seven numbers.
-- **Modifiers**: tap ×2 and the +2 / +4 / +6 / +8 / +10 bonuses.
+- **Classic or Vengeance**: one toggle switches the rules, including the optional Brutal mode.
+- **Tap, don't type**: for each player, tap the number cards they kept. The app blocks duplicates and stops at seven numbers.
+- **Modifiers**: ×2 and +2 … +10 in Classic, ÷2 and −2 … −10 in Vengeance.
 - **Flip 7 bonus**: seven different numbers automatically add **+15**.
 - **Busted**: one tap and the player scores zero for the round.
 - **Live leaderboard**: shows who's ahead and how close everyone is to 200.
@@ -29,13 +30,28 @@ This little web app does the maths for you, so you can spend the evening flippin
 - **Works offline-ish**: your game is saved on your phone, so closing the app won't lose the score.
 - **Dark mode**: follows your phone's setting.
 
+## Two versions, one toggle
+
+Pick the version on the home screen before you start:
+
+| | **Classic** | **With a Vengeance** |
+|---|---|---|
+| Number cards | 0–12 | 0–13 |
+| Big modifier | ×2 (doubles numbers) | ÷2 (halves numbers, rounded down) |
+| Other modifiers | +2 … +10 | −2 … −10 (score never drops below 0) |
+| The Zero | worth 0 | wipes your round to 0, unless you Flip 7 |
+| Lucky 13 | n/a | you can hold two 13s without busting |
+| Flip 7 bonus | +15 | +15 |
+
+**Brutal mode** (Vengeance only): scores can go negative, modifiers can hit busted players, and a Flip 7 can take 15 points away from a rival instead of adding 15 to yourself.
+
 ## How scoring works
 
 ```
-round score = (sum of number cards) × 2 if you have the ×2
-            + bonus cards (+2 … +10)
-            + 15 if you flipped 7 different numbers
-busted?     → 0
+Classic:    (numbers × 2 if ×2) + bonuses            + 15 if Flip 7
+Vengeance:  max(0, (numbers ÷ 2 if ÷2) − modifiers)  + 15 if Flip 7
+            The Zero without a Flip 7 → numbers count as 0
+Busted?     → 0
 ```
 
 The game ends at the end of the round in which someone reaches **200**. Highest total wins.
