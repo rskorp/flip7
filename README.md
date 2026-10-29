@@ -76,6 +76,15 @@ apple-touch-icon.png  iOS home-screen icon
 
 To run it locally, just open `index.html` in a browser.
 
+### Regression tests
+
+`tests/regression.js` drives the real page in headless Chromium and taps buttons like a player would. Its 81 checks cover Classic, Vengeance and Brutal scoring, the 200-point end of game, round corrections, saving and reloading, and the mobile layout.
+
+```bash
+npm i -D playwright && npx playwright install chromium
+node tests/regression.js
+```
+
 ---
 
 <sub>Fan-made score tracker, not affiliated with the publishers of Flip 7. Go buy the game, it's great.</sub>
